@@ -1,4 +1,6 @@
 from typing import List, Dict, Any
+# In algorithms/aggregation.py
+import pandas as pd
 
 def calculate_total_spend(records: List[Dict[str, Any]]) -> float:
     """
@@ -24,8 +26,8 @@ def calculate_total_spend(records: List[Dict[str, Any]]) -> float:
 
 from typing import List, Dict, Any, Optional, Tuple
 
-def get_top_vendors(records: List[Dict[str, Any]], mode: str = 'frequency', limit: Optional[int] = None) -> List[Tuple[str, float]]:
-    """
+"""def get_top_vendors(records: List[Dict[str, Any]], mode: str = 'frequency', limit: Optional[int] = None) -> List[Tuple[str, float]]:
+    
     Finds top vendors by transaction frequency or total spend.
 
     Args:
@@ -37,7 +39,7 @@ def get_top_vendors(records: List[Dict[str, Any]], mode: str = 'frequency', limi
     Returns:
         A sorted list of tuples, where each tuple contains a vendor name and 
         their aggregated score (count or total spend), sorted in descending order.
-    """
+    
     if mode not in ['frequency', 'spend']:
         raise ValueError("Mode must be either 'frequency' or 'spend'")
 
@@ -62,4 +64,55 @@ def get_top_vendors(records: List[Dict[str, Any]], mode: str = 'frequency', limi
     if limit is not None:
         return sorted_vendors[:limit]
     
-    return sorted_vendors
+    return sorted_vendors"""
+
+
+
+# In algorithms/aggregation.py
+
+def get_top_vendors(records: list[dict], mode: str = 'spend', limit: int = 10, amount_field: str = 'amount') -> list:
+    """
+    Aggregates records to find top vendors by total spend or frequency.
+    Now accepts a dynamic amount_field for currency conversion.
+    """
+    if not records:
+        return []
+
+    df = pd.DataFrame(records)
+    if df.empty:
+        return []
+
+    if mode == 'spend':
+        # Use the amount_field parameter here instead of a hardcoded 'amount'
+        top_items = df.groupby('vendor')[amount_field].sum().nlargest(limit)
+    else:  # mode == 'frequency'
+        top_items = df['vendor'].value_counts().nlargest(limit)
+
+    return list(top_items.items())
+
+
+
+
+def get_top_categories(records: list[dict], mode: str = 'spend', limit: int = 10, amount_field: str = 'amount') -> list:
+    """
+    Aggregates records to find top categories by total spend or frequency.
+    """
+    if not records:
+        return []
+
+    # Use a DataFrame for efficient grouping
+    df = pd.DataFrame(records)
+
+    # Filter out records with no category
+    df = df.dropna(subset=['category'])
+    if df.empty:
+        return []
+
+    if mode == 'spend':
+        # Group by category and sum the amounts, then get the top 'limit'
+        top_items = df.groupby('category')[amount_field].sum().nlargest(limit)
+    else: # mode == 'frequency'
+        # Group by category and count occurrences, then get the top 'limit'
+        top_items = df['category'].value_counts().nlargest(limit)
+
+    return list(top_items.items())

@@ -18,6 +18,7 @@ class ReceiptData(BaseModel):
     raw_data: bytes = Field(..., description="Raw Data of uploaded file")
     raw_data_extension: str = Field(..., description="Extension of the file uploaded")
     upload_timestamp: datetime = Field(default_factory=datetime.now, description="Timestamp when the receipt was updated")
+    currency: str = Field(default="INR", description="ISO 4217 currency code (e.g., INR, USD)")
 
     @field_validator('raw_data_extension')
     @classmethod

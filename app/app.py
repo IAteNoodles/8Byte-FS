@@ -1,239 +1,206 @@
-from flask import Flask, request, jsonify
-from pydantic import BaseModel, Field, field_validator, ValidationError
+import base64
+import statistics
+import traceback
+import pandas as pd
 from datetime import date, datetime
 from typing import Optional
 
+from flask import Flask, jsonify, request
+from pydantic import ValidationError
 
-
-# TODO: Import the parser and database modules.
-from services.parsers import parse_and_extract_data
-# from database import save_receipt
-from database.database import save_receipt, get_all_receipts
+# Assuming your project structure is now modular
+# --- IMPORT THE NEW AGGREGATION FUNCTION ---
+from algorithms.aggregation import get_top_vendors, get_top_categories
+from algorithms.search import fuzzy_search_records, search_by_keywords_concise, search_by_range
 from algorithms.sort import sort_records
-from algorithms.search import search_by_keywords_concise
-from algorithms.aggregation import calculate_total_spend, get_top_vendors
-
+from database.database import get_all_receipts, save_receipt
 from models.receipt import ReceiptData
+from services.parsers import parse_and_extract_data
+from services.currency_converter import convert_to_base_currency
+from flask_cors import CORS
 
 app = Flask(__name__)
 
-
-
-# --- File Handling Logic ---
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg'}
 
 def is_allowed_file(filename: str) -> bool:
-    """Checks if the file has one of the allowed extensions."""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# --- Flask Endpoint ---
-@app.route('/', methods=['GET'])
-def hello():
-    return "hello"
-@app.route('/upload', methods=['POST'])
-def upload_receipt():
-    """Endpoint to upload, parse, and validate a receipt file."""
-    if 'file' not in request.files:
-        return jsonify({"error": "No file part in the request"}), 400
-    
-    file = request.files['file']
-    if file.filename == '' or not is_allowed_file(file.filename):
-        return jsonify({"error": "Invalid or missing file"}), 400
-
-    try:
-        file_bytes = file.read()
-        file_extension = file.filename.rsplit('.', 1)[1].lower()
-
-        # 1. Parse data using the parsing module
-        extracted_data = parse_and_extract_data(file_bytes, file_extension)
-
-        # 2. Prepare the full data payload for validation
-        full_data = {
-            **extracted_data,
-            "raw_data": file_bytes,
-            "raw_data_extension": file_extension
-        }
-
-        # 3. Validate data using the Pydantic model
-        receipt = ReceiptData(**full_data)
-
-        # 4. TODO: Save the validated receipt object to the SQLite database.
-        receipt_id = save_receipt(receipt)
+# --- Helper Function for Dynamic Filtering ---
+def get_filtered_receipts(args):
+    records = get_all_receipts()
+    range_feature = args.get('range_feature')
+    start_range = args.get('start')
+    end_range = args.get('end')
+    if range_feature and start_range and end_range:
+        records = search_by_range(records, range_feature, start_range, end_range)
+    search_keyword = args.get('search_keyword')
+    search_feature = args.get('search_feature')
+    if search_keyword and search_feature:
+        # Split the comma-separated string from the UI into a list
+        keywords = [k.strip() for k in search_keyword.split(',')]
         
-        # Return the validated data (excluding raw bytes) as confirmation
-        return jsonify({
-            "message": "File processed and validated successfully.",
-            "data": receipt.dict(exclude={'raw_data'})
-        }), 200
+        # The fuzzy search logic would also need to be updated to handle lists,
+        # but for the default exact search, this works perfectly.
+        search_mode = args.get('search_mode', 'exact')
+        if search_mode == 'fuzzy':
+            # For now, fuzzy search will only use the first keyword
+            records = fuzzy_search_records(keywords[0], search_feature, records)
+        else:
+            records = search_by_keywords_concise(keywords, search_feature, records)
+    # --- End of modification ---
 
-    except ValidationError as e:
-        # Return detailed validation errors from Pydantic
-        return jsonify({"error": "Validation failed", "details": e.errors()}), 422
-    except Exception as e:
-        # TODO: Implement more specific exception handling and logging.
-        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
-    
-@app.route('/receipts', methods=['GET'])
-def get_receipts():
-    """
-    Retrieves, searches, and sorts receipts based on query parameters.
-    Examples:
-    - /receipts
-    - /receipts?search_keyword=mart&search_feature=vendor
-    - /receipts?sort_by=amount&order=desc
-    """
-    try:
-        # 1. Fetch all records from the database
-        records = get_all_receipts()
+    return records
 
-        # 2. Apply search if parameters are provided
-        search_keyword = request.args.get('search_keyword')
-        search_feature = request.args.get('search_feature')
-        if search_keyword and search_feature:
-            records = search_by_keywords_concise(search_keyword, search_feature, records)
-
-        # 3. Apply sorting if parameters are provided
-        sort_by = request.args.get('sort_by')
-        if sort_by:
-            order = request.args.get('order', 'asc') # Default to ascending
-            is_desc = order.lower() == 'desc'
-            print(is_desc)
-            records = sort_records(records, sort_by=sort_by, reverse=is_desc)
-        
-        # #TODO: Implement pagination for large datasets.
-        
-        return jsonify(records), 200
-
-    except Exception as e:
-        # TODO: Implement more specific exception handling and logging.
-        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
-
-@app.route('/insights/top-vendors', methods=['GET'])
-def get_vendor_summary():
-    """
-    Provides aggregated data on vendors by spend or frequency.
-    Query Params:
-    - mode: 'spend' or 'frequency' (default: 'spend')
-    - limit: integer (default: 10)
-    """
-    try:
-        mode = request.args.get('mode', 'spend')
-        limit = int(request.args.get('limit', 10))
-        
-        records = get_all_receipts()
-        if not records:
-            return jsonify([]), 200
-
-        # Use the aggregation function we already built
-        top_vendors_data = get_top_vendors(records, mode=mode, limit=limit)
-        
-        # Convert list of tuples to a format suitable for charting
-        # e.g., [{'vendor': 'Walmart', 'value': 500}]
-        results = [{"vendor": vendor, "value": value} for vendor, value in top_vendors_data]
-        
-        return jsonify(results), 200
-
-    except Exception as e:
-        # TODO: Add more specific error handling
-        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
-
-import pandas as pd
-# ... other imports
-
-# ... (all other endpoints)
-
-# --- New endpoint for time-series insights ---
-@app.route('/insights/spending-over-time', methods=['GET'])
-def get_spending_trend():
-    """
-    Provides aggregated data on total spending per day.
-    """
-    try:
-        records = get_all_receipts()
-        if not records:
-            return jsonify([]), 200
-
-        # Use pandas to easily manipulate the time-series data
-        df = pd.DataFrame(records)
-        df['transaction_date'] = pd.to_datetime(df['transaction_date'])
-        
-        # Group by date and sum the amounts, then reset index to make 'transaction_date' a column again
-        daily_spend = df.groupby('transaction_date')['amount'].sum().reset_index()
-        
-        # Convert to a JSON-friendly list of dictionaries
-        result = daily_spend.to_dict('records')
-        
-        return jsonify(result), 200
-
-    except Exception as e:
-        tb = traceback.format_exc()
-        print(tb)
-        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
-
-
+# --- Core API Endpoints (Unchanged) ---
 @app.route('/process-receipt', methods=['POST'])
 def process_receipt_file():
-    """
-    Receives a file, runs parsing, and returns the extracted fields without saving.
-    """
-    if 'file' not in request.files:
-        return jsonify({"error": "No file part in the request"}), 400
-    
+    if 'file' not in request.files: return jsonify({"error": "No file part"}), 400
     file = request.files['file']
-    if file.filename == '' or not is_allowed_file(file.filename):
-        return jsonify({"error": "Invalid or missing file"}), 400
-
+    if not file.filename or not is_allowed_file(file.filename): return jsonify({"error": "Invalid file"}), 400
     file_bytes = file.read()
     file_extension = file.filename.rsplit('.', 1)[1].lower()
-    
-    # Run the parser but don't save to DB yet
-    extracted_data = parse_and_extract_data(file_bytes, file_extension)
-    
-    # Also include the raw file data needed for the final save
-    extracted_data['raw_data_extension'] = file_extension
-    
-    # Return the parsed data for the user to review
+    use_ai = request.form.get('use_ai', 'false').lower() == 'true'
+    extracted_data = parse_and_extract_data(file_bytes, file_extension, use_ai=use_ai)
     return jsonify(extracted_data), 200
-
-
-# In app.py
-import base64
-from pydantic import ValidationError
 
 @app.route('/save-receipt', methods=['POST'])
 def save_corrected_receipt():
-    """
-    Receives final, user-corrected JSON data, validates it, and saves it to the database.
-    """
     data = request.get_json()
-    if not data:
-        return jsonify({"error": "Request must be a valid JSON."}), 400
-
-    # --- Add this check for required fields ---
-    required_fields = ['vendor', 'transaction_date', 'amount', 'raw_data', 'raw_data_extension']
-    for field in required_fields:
-        if data.get(field) is None:
-            return jsonify({"error": f"Validation failed: The '{field}' field cannot be empty."}), 422
-    # -------------------------------------------
-
+    if not data: return jsonify({"error": "Invalid JSON"}), 400
     try:
-        if isinstance(data.get('raw_data'), str):
-            data['raw_data'] = base64.b64decode(data['raw_data'])
-        
+        if isinstance(data.get('raw_data'), str): data['raw_data'] = base64.b64decode(data['raw_data'])
         receipt = ReceiptData(**data)
         receipt_id = save_receipt(receipt)
-        
-        return jsonify({ "message": "Receipt saved successfully.", "receipt_id": receipt_id }), 201
+        return jsonify({"message": "Receipt saved", "receipt_id": receipt_id}), 201
+    except ValidationError as e: return jsonify({"error": "Validation failed", "details": e.errors()}), 422
+    except Exception as e: return jsonify({"error": f"Unexpected error: {e}"}), 500
 
-    except ValidationError as e:
-        return jsonify({"error": "Validation failed", "details": e.errors()}), 422
+@app.route('/receipts', methods=['GET'])
+def get_receipts():
+    try:
+        records = get_filtered_receipts(request.args)
+        sort_by = request.args.get('sort_by')
+        if sort_by:
+            order = request.args.get('order', 'asc')
+            records = sort_records(records, sort_by=sort_by, reverse=(order.lower() == 'desc'))
+        return jsonify(records), 200
+    except Exception as e: return jsonify({"error": f"Unexpected error: {e}"}), 500
+
+# --- Insight Endpoints ---
+
+@app.route('/insights/statistics', methods=['GET'])
+def get_expenditure_stats():
+    try:
+        records = get_filtered_receipts(request.args)
+        if not records: return jsonify({"total": 0, "mean": 0, "median": 0}), 200
+        base_currency = request.args.get('base_currency', 'INR')
+        records = convert_to_base_currency(records, base_currency)
+        amounts = [r['amount_in_base'] for r in records if r.get('amount_in_base') is not None]
+        if not amounts: return jsonify({"total": 0, "mean": 0, "median": 0}), 200
+        stats = {
+            "total": round(sum(amounts), 2),
+            "mean": round(statistics.mean(amounts), 2),
+            "median": round(statistics.median(amounts), 2),
+        }
+        return jsonify(stats), 200
     except Exception as e:
-        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
+        traceback.print_exc()
+        return jsonify({"error": f"Unexpected error: {e}"}), 500
+
+@app.route('/insights/top-vendors', methods=['GET'])
+def get_vendor_summary():
+    try:
+        records = get_filtered_receipts(request.args)
+        if not records: return jsonify([]), 200
+        mode = request.args.get('mode', 'spend')
+        if mode == 'spend':
+            base_currency = request.args.get('base_currency', 'INR')
+            records = convert_to_base_currency(records, base_currency)
+        top_vendors_data = get_top_vendors(records, mode=mode, amount_field='amount_in_base')
+        results = [{"vendor": vendor, "value": value} for vendor, value in top_vendors_data]
+        return jsonify(results), 200
+    except Exception as e: return jsonify({"error": f"Unexpected error: {e}"}), 500
+
+"""# --- NEW ENDPOINT FOR CATEGORY ANALYSIS ---
+@app.route('/insights/top-categories', methods=['GET'])
+def get_category_summary():
+    Provides top category data based on the filtered dataset.
+    try:
+        records = get_filtered_receipts(request.args)
+        if not records: return jsonify([]), 200
+        mode = request.args.get('mode', 'spend')
+        if mode == 'spend':
+            base_currency = request.args.get('base_currency', 'INR')
+            records = convert_to_base_currency(records, base_currency)
+        # Use the new aggregation function
+        top_categories_data = get_top_categories(records, mode=mode, amount_field='amount_in_base')
+        results = [{"category": category, "value": value} for category, value in top_categories_data]
+        return jsonify(results), 200
+    except Exception as e: return jsonify({"error": f"Unexpected error: {e}"}), 500"""
+
+# --- ENHANCED ENDPOINT FOR TIME-SERIES ANALYSIS ---
+
+@app.route('/insights/spending-over-time', methods=['GET'])
+def get_spending_trend():
+    """Provides time-series data based on different modes (total, mean, by vendor, by category)."""
+    try:
+        records = get_filtered_receipts(request.args)
+        if not records: return jsonify([]), 200
+        
+        base_currency = request.args.get('base_currency', 'INR')
+        records = convert_to_base_currency(records, base_currency)
+        
+        df = pd.DataFrame(records)
+        df['transaction_date'] = pd.to_datetime(df['transaction_date'])
+        
+        mode = request.args.get('mode', 'total spend').lower()
+        
+        # Resample daily to ensure all dates are present
+        df = df.set_index('transaction_date')
+
+        if mode == 'by vendor':
+            # Group by date and vendor, sum amounts, then pivot vendors into columns
+            result_df = df.groupby([pd.Grouper(freq='D'), 'vendor'])['amount_in_base'].sum().unstack(level='vendor').fillna(0)
+        elif mode == 'by category':
+            # Group by date and category, sum amounts, then pivot categories into columns
+            result_df = df.groupby([pd.Grouper(freq='D'), 'category'])['amount_in_base'].sum().unstack(level='category').fillna(0)
+        elif mode == 'mean spend':
+            # Group by date and calculate the mean spend per day
+            result_df = df.resample('D')['amount_in_base'].mean().fillna(0).to_frame(name="Mean Spend")
+        else: # Default to 'total spend'
+            # Group by date and calculate the total spend per day
+            result_df = df.resample('D')['amount_in_base'].sum().fillna(0).to_frame(name="Total Spend")
+
+        result = result_df.reset_index().to_dict('records')
+        return jsonify(result), 200
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": f"Unexpected error: {e}"}), 500
+
+
+
+# --- NEW ENDPOINT FOR CATEGORY ANALYSIS ---
+@app.route('/insights/top-categories', methods=['GET'])
+def get_category_summary():
+    """Provides top category data based on the filtered dataset."""
+    try:
+        records = get_filtered_receipts(request.args)
+        if not records: return jsonify([]), 200
+        mode = request.args.get('mode', 'spend')
+        if mode == 'spend':
+            base_currency = request.args.get('base_currency', 'INR')
+            records = convert_to_base_currency(records, base_currency)
+        # Use the new aggregation function
+        top_categories_data = get_top_categories(records, mode=mode, amount_field='amount_in_base')
+        results = [{"category": category, "value": value} for category, value in top_categories_data]
+        return jsonify(results), 200
+    except Exception as e: return jsonify({"error": f"Unexpected error: {e}"}), 500
 
 
 
 
-
+CORS(app)
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

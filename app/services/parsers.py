@@ -11,7 +11,7 @@ from dateutil import parser  # Added for flexible date parsing
 #This DOESN"T EXISTSSSSS
 # Make sure you have the ai_parser.py file we created earlier
 #TODO
-#from ai_parser import extract_with_ai 
+from .ai_parser import extract_with_ai
 #----------------------VENDORS-----------------------
 
 # In services/parsers.py
@@ -192,31 +192,96 @@ KNOWN_VENDORS = {
 }
 
 
-def extract_with_ai(blah):
-    pass
+
+import re
+
+def find_currency_and_amount(text: str) -> tuple[float | None, str | None]:
+    """
+    Scans text to find an amount and its currency based on common symbols.
+
+    Args:
+        text: The raw text from the receipt.
+
+    Returns:
+        A tuple containing the amount (float) and the currency code (str),
+        or (None, None) if no currency-adorned amount is found.
+    """
+    # Define currency symbols and their corresponding ISO codes
+    currency_map = {
+        '₹': 'INR',
+        'IN': 'INR',
+        '$': 'USD',
+        '€': 'EUR',
+        '£': 'GBP',
+    }
+
+    # A robust regex for capturing numbers, including those with commas
+    amount_pattern_str = r'(\d{1,3}(?:,?\d{3})*(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)'
+
+    detected_amount = None
+    detected_currency = None
+
+    # Iterate through each currency symbol and look for a match
+    for symbol, code in currency_map.items():
+        # Regex to find: [symbol][optional space][amount] OR [amount][optional space][symbol]
+        pattern = re.compile(
+            f"(?:{re.escape(symbol)}\s*({amount_pattern_str}))"  # e.g., $1,234.56
+            f"|"
+            f"({amount_pattern_str})\s*{re.escape(symbol)}",    # e.g., 1,234.56 €
+            re.IGNORECASE
+        )
+        
+        for match in pattern.finditer(text):
+            # The match object will have 3 groups:
+            # group(1) is from the first part of the OR: symbol-amount
+            # group(2) is from the second part: amount-symbol
+            # group(0) is the full match
+            amount_str = match.group(1) or match.group(2)
+            if amount_str:
+                amount_val = float(amount_str.replace(',', ''))
+                # You might add logic here to find the "best" amount if multiple are found
+                detected_amount = amount_val
+                detected_currency = code
+                # Return on first find for simplicity, or continue to find the largest/best amount
+                return detected_amount, detected_currency
+
+    return None, None # Fallback if no symbol-based amount is found
+
+
 #------------------VENDORS-------------------
 
-def find_vendor(text: str, score_cutoff: int = 85) -> tuple[str | None, str | None]:
-    """Finds a vendor using fuzzy matching against a known list."""
+import re # Make sure 're' is imported
+
+from thefuzz import fuzz
+
+# In services/parsers.py
+
+def find_vendor(text: str) -> tuple[str | None, str | None]:
+    """Finds a vendor using a tiered heuristic and cleans the resulting name."""
     text_lower = text.lower()
-    best_match_score, best_match_vendor, best_match_category = 0, None, None
     for category, vendors in KNOWN_VENDORS.items():
         for keyword, name in vendors.items():
-            score = fuzz.partial_ratio(keyword, text_lower)
-            if score > best_match_score:
-                best_match_score, best_match_vendor, best_match_category = score, name, category
-    if best_match_score >= score_cutoff:
-        return best_match_vendor, best_match_category
-    if 'electricity' in text_lower:
-        return 'Electricity Provider', 'Electricity'
+            if re.search(r'\b' + re.escape(keyword) + r'\b', text_lower):
+                return name, category
+    corporate_suffixes = ['ltd', 'pvt', 'limited', 'corp', 'corporation', 'inc']
+    for line in text.split('\n')[:15]:
+        clean_line = line.strip()
+        line_lower = clean_line.lower()
+        if any(suffix in line_lower for suffix in corporate_suffixes) and not any(char.isdigit() for char in clean_line):
+            if len(clean_line) > 3:
+                vendor_name = clean_line.split(',')[0].split('(')[0]
+                cleaned_name = re.sub(r"[^a-zA-Z0-9 '\"_-]", "", vendor_name).strip()
+                return cleaned_name, 'Uncategorized'
+    if 'electricity' in text_lower: return 'Generic Electricity Provider', 'Electricity'
+    if any(k in text_lower for k in ['telecom', 'internet']): return 'Generic Telecom Provider', 'Internet & Telecom'
+    if 'groceries' in text_lower: return 'Generic Grocery Store', 'Groceries'
     return None, None
 
 def find_date(text: str) -> str | None:
     """Finds all possible dates in the text and returns the earliest one."""
     date_pattern = r'(\d{2}[-/]\d{2}[-/]\d{4}|\d{4}[-/]\d{2}[-/]\d{2})'
     matches = re.findall(date_pattern, text)
-    if not matches:
-        return None
+    if not matches: return None
     parsed_dates = []
     for date_str in matches:
         try:
@@ -226,81 +291,83 @@ def find_date(text: str) -> str | None:
                 parsed_dates.append(datetime.strptime(date_str.replace('/', '-'), '%Y-%m-%d'))
             except ValueError:
                 continue
-    if parsed_dates:
-        return min(parsed_dates).strftime('%Y-%m-%d')
+    if parsed_dates: return min(parsed_dates).strftime('%Y-%m-%d')
     return None
 
 def find_amount(text: str) -> float | None:
-    """Finds the final total amount using a "bottom-up" search with a dynamic confidence score."""
-    amount_keywords = [
-        "amount to be paid", "net amt due", "total amount due", "net amount payable", "bill amount",
-        "invoice amount", "final amount", "net amount", "grand total", "total", "amt", "due", "payable"
-    ]
-    currency_pattern = r'(¥|₹|Rs\.?|INR|\$|USD|€|EUR|£|GBP)'
+    """Finds the total amount using a two-stage, bottom-up search."""
+    currency_pattern = r'(¥|₹|Rs\.?|INR|rupees|\$|USD|€|EUR|£|GBP)'
     number_pattern = r'([\d,]+(?:\.\d{1,2})?)'
-    min_cutoff, max_cutoff = 70, 95
+    amount_keywords = ["amount to be paid", "net amt due", "total amount due", "net amount payable", "grand total", "total", "amt", "due"]
     lines = text.split('\n')
-    for i, line in enumerate(reversed(lines)):
-        if not line.strip():
-            continue
+    # Primary Method: Direct currency search
+    for line in reversed(lines):
         if re.search(currency_pattern, line, re.IGNORECASE) and re.search(number_pattern, line):
-            current_cutoff = min(max_cutoff, min_cutoff + i)
-            line_lower = line.lower()
-            keyword_score = max(fuzz.token_set_ratio(keyword, line_lower) for keyword in amount_keywords)
-            if keyword_score >= current_cutoff:
-                amount_match = re.search(number_pattern, line)
-                if amount_match:
-                    try:
-                        amount_str = amount_match.group(1).replace(',', '').replace(' ', '')
-                        return float(amount_str)
-                    except (ValueError, AttributeError):
-                        continue
+            match = re.search(number_pattern, line)
+            if match:
+                try: return float(match.group(1).replace(',', '').replace(' ', ''))
+                except (ValueError, AttributeError): continue
+    # Fallback Method: Fuzzy keyword search
+    for line in reversed(lines):
+        if max(fuzz.token_set_ratio(k, line.lower()) for k in amount_keywords) >= 80:
+            match = re.search(number_pattern, line)
+            if match:
+                try: return float(match.group(1).replace(',', '').replace(' ', ''))
+                except (ValueError, AttributeError): continue
     return None
 
-def parse_and_extract_data(file_bytes: bytes, file_extension: str) -> dict:
-    """Extracts text and parses it using a primary fuzzy logic method with an AI fallback."""
+# --- Main Controller Function ---
+def parse_and_extract_data(file_bytes: bytes, file_extension: str, use_ai: bool = False) -> dict:
+    """
+    Selects an OCR engine (Tesseract or AI), gets raw text, then applies fuzzy parsers.
+    Now includes currency detection.
+    """
     raw_text = ""
-    if file_extension in ['jpg', 'png']:
-        try:
-            raw_text = pytesseract.image_to_string(Image.open(io.BytesIO(file_bytes)))
-        except Exception as e:
-            print(f"Error processing image with Tesseract: {e}")
-    elif file_extension == 'pdf':
-        try:
-            with fitz.open(stream=file_bytes, filetype="pdf") as doc:
-                for page in doc:
-                    text = page.get_text()
-                    if not text.strip():
-                        pix = page.get_pixmap()
-                        img_bytes = pix.tobytes("png")
-                        raw_text += pytesseract.image_to_string(Image.open(io.BytesIO(img_bytes))) + "\n"
-                    else:
-                        raw_text += text + "\n"
-        except Exception as e:
-            print(f"Error processing PDF file: {e}")
-    elif file_extension == 'txt':
-        raw_text = file_bytes.decode('utf-8', errors='ignore')
+    # This entire OCR section remains unchanged
+    if use_ai:
+        print("Using AI-Enhanced OCR (PaddleOCR)...")
+        raw_text = extract_with_ai(file_bytes, file_extension)
+    else:
+        print("Using Standard OCR (Tesseract)...")
+        if file_extension in ['jpg', 'png', 'jpeg']:
+            try: raw_text = pytesseract.image_to_string(Image.open(io.BytesIO(file_bytes)))
+            except Exception as e: print(f"Error during Tesseract OCR: {e}")
+        elif file_extension == 'pdf':
+            try:
+                with fitz.open(stream=file_bytes, filetype="pdf") as doc:
+                    for page in doc:
+                        text = page.get_text()
+                        if not text.strip():
+                            pix = page.get_pixmap()
+                            raw_text += pytesseract.image_to_string(Image.open(io.BytesIO(pix.tobytes("png")))) + "\n"
+                        else:
+                            raw_text += text + "\n"
+            except Exception as e: print(f"Error processing PDF with Tesseract: {e}")
+        elif file_extension == 'txt':
+            raw_text = file_bytes.decode('utf-8', errors='ignore')
 
+    # --- MODIFIED PARSING LOGIC ---
+
+    # 1. Parse vendor and date as you did before
     vendor, category = find_vendor(raw_text)
     transaction_date = find_date(raw_text)
-    amount = find_amount(raw_text)
 
-    print(raw_text)
+    # 2. Use the new helper to find amount AND currency together
+    amount, currency = find_currency_and_amount(raw_text)
 
-    print("-----------Extracted")
+    # 3. Fallback Logic: If no currency symbol was found, use your original method
+    if amount is None:
+        print("No currency symbol found. Using fallback amount parser.")
+        amount = find_amount(raw_text)  # Your original amount-finding function
+        currency = "INR"                 # Assign the default currency
 
-    print(vendor, transaction_date, amount)
-
-    if not all([vendor, transaction_date, amount]):
-        print("Primary method failed. Triggering AI fallback...")
-        ai_data = extract_with_ai(raw_text)
-        if ai_data:
-            return {
-                "vendor": ai_data.get("vendor"), "transaction_date": ai_data.get("transaction_date"),
-                "amount": ai_data.get("amount"), "raw_text": raw_text, "category": category 
-            }
-
+    # 4. Return the dictionary, now with the new 'currency' field included
     return {
-        "vendor": vendor, "transaction_date": transaction_date,
-        "amount": amount, "raw_text": raw_text, "category": category 
+        "vendor": vendor,
+        "transaction_date": transaction_date,
+        "amount": amount,
+        "currency": currency, # Add the new currency field to the response
+        "raw_text": raw_text,
+        "category": category
     }
+
