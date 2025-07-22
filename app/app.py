@@ -21,6 +21,25 @@ from flask_cors import CORS
 
 app = Flask(__name__)
 
+# --- Standardized Response Helpers ---
+def success_response(data=None, message="Success", status_code=200):
+    """Create a standardized success response."""
+    response = {
+        "success": True,
+        "message": message,
+        "data": data
+    }
+    return jsonify(response), status_code
+
+def error_response(message="An error occurred", details=None, status_code=400):
+    """Create a standardized error response."""
+    response = {
+        "success": False,
+        "error": message,
+        "details": details
+    }
+    return jsonify(response), status_code
+
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg'}
 
 def is_allowed_file(filename: str) -> bool:
@@ -55,26 +74,54 @@ def get_filtered_receipts(args):
 # --- Core API Endpoints (Unchanged) ---
 @app.route('/process-receipt', methods=['POST'])
 def process_receipt_file():
-    if 'file' not in request.files: return jsonify({"error": "No file part"}), 400
-    file = request.files['file']
-    if not file.filename or not is_allowed_file(file.filename): return jsonify({"error": "Invalid file"}), 400
-    file_bytes = file.read()
-    file_extension = file.filename.rsplit('.', 1)[1].lower()
-    use_ai = request.form.get('use_ai', 'false').lower() == 'true'
-    extracted_data = parse_and_extract_data(file_bytes, file_extension, use_ai=use_ai)
-    return jsonify(extracted_data), 200
+    try:
+        if 'file' not in request.files:
+            return error_response("No file provided", status_code=400)
+        
+        file = request.files['file']
+        if not file.filename or not is_allowed_file(file.filename):
+            return error_response("Invalid file type or filename", status_code=400)
+        
+        file_bytes = file.read()
+        file_extension = file.filename.rsplit('.', 1)[1].lower()
+        use_ai = request.form.get('use_ai', 'false').lower() == 'true'
+        
+        extracted_data = parse_and_extract_data(file_bytes, file_extension, use_ai=use_ai)
+        
+        return success_response(
+            data=extracted_data,
+            message="File processed successfully"
+        )
+    except Exception as e:
+        return error_response(f"File processing failed: {str(e)}", status_code=500)
 
 @app.route('/save-receipt', methods=['POST'])
 def save_corrected_receipt():
-    data = request.get_json()
-    if not data: return jsonify({"error": "Invalid JSON"}), 400
     try:
-        if isinstance(data.get('raw_data'), str): data['raw_data'] = base64.b64decode(data['raw_data'])
+        data = request.get_json()
+        if not data:
+            return error_response("No JSON data provided", status_code=400)
+        
+        # Decode base64 raw_data if it's a string
+        if isinstance(data.get('raw_data'), str):
+            data['raw_data'] = base64.b64decode(data['raw_data'])
+        
         receipt = ReceiptData(**data)
         receipt_id = save_receipt(receipt)
-        return jsonify({"message": "Receipt saved", "receipt_id": receipt_id}), 201
-    except ValidationError as e: return jsonify({"error": "Validation failed", "details": e.errors()}), 422
-    except Exception as e: return jsonify({"error": f"Unexpected error: {e}"}), 500
+        
+        return success_response(
+            data={"receipt_id": receipt_id},
+            message="Receipt saved successfully",
+            status_code=201
+        )
+    except ValidationError as e:
+        return error_response(
+            "Validation failed",
+            details=e.errors(),
+            status_code=422
+        )
+    except Exception as e:
+        return error_response(f"Failed to save receipt: {str(e)}", status_code=500)
 
 @app.route('/receipts', methods=['GET'])
 def get_receipts():
@@ -84,8 +131,13 @@ def get_receipts():
         if sort_by:
             order = request.args.get('order', 'asc')
             records = sort_records(records, sort_by=sort_by, reverse=(order.lower() == 'desc'))
-        return jsonify(records), 200
-    except Exception as e: return jsonify({"error": f"Unexpected error: {e}"}), 500
+        
+        return success_response(
+            data=records,
+            message=f"Retrieved {len(records)} receipt(s)"
+        )
+    except Exception as e:
+        return error_response(f"Failed to retrieve receipts: {str(e)}", status_code=500)
 
 # --- Insight Endpoints ---
 
@@ -93,51 +145,66 @@ def get_receipts():
 def get_expenditure_stats():
     try:
         records = get_filtered_receipts(request.args)
-        if not records: return jsonify({"total": 0, "mean": 0, "median": 0}), 200
         base_currency = request.args.get('base_currency', 'INR')
+        
+        if not records:
+            return success_response(
+                data={"total": 0, "mean": 0, "median": 0, "currency": base_currency},
+                message="No records found"
+            )
+        
         records = convert_to_base_currency(records, base_currency)
         amounts = [r['amount_in_base'] for r in records if r.get('amount_in_base') is not None]
-        if not amounts: return jsonify({"total": 0, "mean": 0, "median": 0}), 200
+        
+        if not amounts:
+            return success_response(
+                data={"total": 0, "mean": 0, "median": 0, "currency": base_currency},
+                message="No valid amounts found"
+            )
+        
         stats = {
             "total": round(sum(amounts), 2),
             "mean": round(statistics.mean(amounts), 2),
             "median": round(statistics.median(amounts), 2),
+            "currency": base_currency,
+            "record_count": len(amounts)
         }
-        return jsonify(stats), 200
+        
+        return success_response(
+            data=stats,
+            message=f"Statistics calculated for {len(amounts)} record(s)"
+        )
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"error": f"Unexpected error: {e}"}), 500
+        return error_response(f"Failed to calculate statistics: {str(e)}", status_code=500)
 
 @app.route('/insights/top-vendors', methods=['GET'])
 def get_vendor_summary():
     try:
         records = get_filtered_receipts(request.args)
-        if not records: return jsonify([]), 200
         mode = request.args.get('mode', 'spend')
+        
+        if not records:
+            return success_response(
+                data=[],
+                message="No records found"
+            )
+        
         if mode == 'spend':
             base_currency = request.args.get('base_currency', 'INR')
             records = convert_to_base_currency(records, base_currency)
+        
         top_vendors_data = get_top_vendors(records, mode=mode, amount_field='amount_in_base')
         results = [{"vendor": vendor, "value": value} for vendor, value in top_vendors_data]
-        return jsonify(results), 200
-    except Exception as e: return jsonify({"error": f"Unexpected error: {e}"}), 500
+        
+        return success_response(
+            data=results,
+            message=f"Top vendors by {mode} ({len(results)} vendor(s))"
+        )
+    except Exception as e:
+        return error_response(f"Failed to get vendor summary: {str(e)}", status_code=500)
 
-"""# --- NEW ENDPOINT FOR CATEGORY ANALYSIS ---
-@app.route('/insights/top-categories', methods=['GET'])
-def get_category_summary():
-    Provides top category data based on the filtered dataset.
-    try:
-        records = get_filtered_receipts(request.args)
-        if not records: return jsonify([]), 200
-        mode = request.args.get('mode', 'spend')
-        if mode == 'spend':
-            base_currency = request.args.get('base_currency', 'INR')
-            records = convert_to_base_currency(records, base_currency)
-        # Use the new aggregation function
-        top_categories_data = get_top_categories(records, mode=mode, amount_field='amount_in_base')
-        results = [{"category": category, "value": value} for category, value in top_categories_data]
-        return jsonify(results), 200
-    except Exception as e: return jsonify({"error": f"Unexpected error: {e}"}), 500"""
+
 
 # --- ENHANCED ENDPOINT FOR TIME-SERIES ANALYSIS ---
 
@@ -146,15 +213,19 @@ def get_spending_trend():
     """Provides time-series data based on different modes (total, mean, by vendor, by category)."""
     try:
         records = get_filtered_receipts(request.args)
-        if not records: return jsonify([]), 200
-        
+        mode = request.args.get('mode', 'total spend').lower()
         base_currency = request.args.get('base_currency', 'INR')
+        
+        if not records:
+            return success_response(
+                data=[],
+                message="No records found for time-series analysis"
+            )
+        
         records = convert_to_base_currency(records, base_currency)
         
         df = pd.DataFrame(records)
         df['transaction_date'] = pd.to_datetime(df['transaction_date'])
-        
-        mode = request.args.get('mode', 'total spend').lower()
         
         # Resample daily to ensure all dates are present
         df = df.set_index('transaction_date')
@@ -173,10 +244,14 @@ def get_spending_trend():
             result_df = df.resample('D')['amount_in_base'].sum().fillna(0).to_frame(name="Total Spend")
 
         result = result_df.reset_index().to_dict('records')
-        return jsonify(result), 200
+        
+        return success_response(
+            data=result,
+            message=f"Time-series data generated for {mode} ({len(result)} data points)"
+        )
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"error": f"Unexpected error: {e}"}), 500
+        return error_response(f"Failed to generate spending trend: {str(e)}", status_code=500)
 
 
 
@@ -186,16 +261,27 @@ def get_category_summary():
     """Provides top category data based on the filtered dataset."""
     try:
         records = get_filtered_receipts(request.args)
-        if not records: return jsonify([]), 200
         mode = request.args.get('mode', 'spend')
+        
+        if not records:
+            return success_response(
+                data=[],
+                message="No records found"
+            )
+        
         if mode == 'spend':
             base_currency = request.args.get('base_currency', 'INR')
             records = convert_to_base_currency(records, base_currency)
-        # Use the new aggregation function
+        
         top_categories_data = get_top_categories(records, mode=mode, amount_field='amount_in_base')
         results = [{"category": category, "value": value} for category, value in top_categories_data]
-        return jsonify(results), 200
-    except Exception as e: return jsonify({"error": f"Unexpected error: {e}"}), 500
+        
+        return success_response(
+            data=results,
+            message=f"Top categories by {mode} ({len(results)} category(ies))"
+        )
+    except Exception as e:
+        return error_response(f"Failed to get category summary: {str(e)}", status_code=500)
 
 
 

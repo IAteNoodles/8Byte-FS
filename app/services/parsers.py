@@ -193,8 +193,6 @@ KNOWN_VENDORS = {
 
 
 
-import re
-
 def find_currency_and_amount(text: str) -> tuple[float | None, str | None]:
     """
     Scans text to find an amount and its currency based on common symbols.
@@ -225,9 +223,9 @@ def find_currency_and_amount(text: str) -> tuple[float | None, str | None]:
     for symbol, code in currency_map.items():
         # Regex to find: [symbol][optional space][amount] OR [amount][optional space][symbol]
         pattern = re.compile(
-            f"(?:{re.escape(symbol)}\s*({amount_pattern_str}))"  # e.g., $1,234.56
-            f"|"
-            f"({amount_pattern_str})\s*{re.escape(symbol)}",    # e.g., 1,234.56 €
+            rf"(?:{re.escape(symbol)}\s*({amount_pattern_str}))"  # e.g., $1,234.56
+            rf"|"
+            rf"({amount_pattern_str})\s*{re.escape(symbol)}",    # e.g., 1,234.56 €
             re.IGNORECASE
         )
         
