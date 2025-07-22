@@ -226,15 +226,24 @@ if 'extracted_data' in st.session_state and st.session_state.extracted_data:
 # ==============================================================================
 st.subheader("Filter Data")
 filter_cols = st.columns(4)
-search_feature = filter_cols[0].selectbox("Search In", options=['vendor', 'category', 'raw_text'], key='search_in')
+search_feature = filter_cols[0].selectbox("Search In", options=['vendor', 'category'], key='search_in')
 search_keyword = filter_cols[1].text_input("Search Keyword", placeholder="e.g., Starbucks", key='search_kw')
 range_feature = filter_cols[2].selectbox("Filter by Range", options=["(None)", "transaction_date", "amount"], key='range_feature')
 display_currency = filter_cols[3].selectbox("Display Currency", options=['INR', 'USD', 'EUR', 'GBP'], key='display_curr')
 
 start_param, end_param = None, None
 if range_feature == "transaction_date":
-    start_param, end_param = st.date_input("Select date range", value=(date.today() - timedelta(days=90), date.today()))
-    start_param, end_param = start_param.isoformat(), end_param.isoformat()
+    date_range = st.date_input("Select date range", value=(date.today() - timedelta(days=90), date.today()))
+    
+    # Handle date range properly - check if both dates are selected
+    if isinstance(date_range, tuple) and len(date_range) == 2:
+        start_param, end_param = date_range[0].isoformat(), date_range[1].isoformat()
+    elif isinstance(date_range, tuple) and len(date_range) == 1:
+        st.warning("⚠️ Please select both start and end dates for the date range filter.")
+        start_param, end_param = None, None
+    elif not isinstance(date_range, tuple):
+        st.warning("⚠️ Please select a complete date range (both start and end dates).")
+        start_param, end_param = None, None
 elif range_feature == "amount":
     start_param, end_param = st.slider("Select amount range", 0.0, 10000.0, (0.0, 5000.0))
 
