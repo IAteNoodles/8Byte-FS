@@ -1,0 +1,54 @@
+# Core Web Framework
+flask==3.0.0
+flask-cors==4.0.0
+
+# Data Processing & Analysis
+pandas==2.1.4
+numpy==1.24.3
+
+#Only for AI_Parser
+# Machine Learning & AI
+#torch==2.1.2
+#transformers==4.36.2
+#qwen-vl-utils==0.0.3
+
+# Computer Vision & OCR
+opencv-python==4.8.1.78
+Pillow==10.1.0
+pytesseract==0.3.10
+PyMuPDF==1.23.14
+
+# Text Processing & Fuzzy Matching
+thefuzz==0.20.0
+python-Levenshtein==0.23.0
+
+# Data Validation & Models
+pydantic==2.5.2
+
+# Web UI
+streamlit==1.29.0
+altair==5.2.0
+
+# HTTP Requests
+requests==2.31.0
+
+# Database
+sqlite3  # Built-in with Python
+
+# Utilities
+python-dateutil==2.8.2
+pytz==2023.3
+
+# Development & Testing
+#pytest==7.4.3
+#unittest2==1.1.0
+
+# Optional: For enhanced OCR capabilities
+# easyocr==1.7.0  # Uncomment if using EasyOCR
+# paddlepaddle==2.5.2  # Uncomment if using PaddleOCR
+# paddleocr==2.7.3  # Uncomment if using PaddleOCR
+
+# System dependencies (install via system package manager):
+# - tesseract-ocr
+# - tesseract-ocr-eng
+# - poppler-utils (for PDF processing)
