@@ -62,7 +62,7 @@ A comprehensive receipt processing and analysis system that combines traditional
 
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/IAteNoodles/8Byte-FS.git 
    cd receipt-analysis-system
    ```
 
@@ -130,16 +130,6 @@ Reason behind Tesseract is that it's widelu used, and I have used it personally 
     "raw_text": "Original extracted text",
 }
 
-## 📚 Documentation
-
-Detailed module documentation available in:
-
-- [Services Documentation](docs/services/README.md)
-- [Algorithms Documentation](docs/algorithms/README.md)
-- [Database Documentation](docs/database/README.md)
-- [Models Documentation](docs/models/README.md)
-- [UI Documentation](docs/ui/README.md)
-- [Utils Documentation](docs/utils/README.md)
 
 ### 🔮 Future Enhancements
 
