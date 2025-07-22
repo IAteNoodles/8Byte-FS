@@ -132,14 +132,6 @@ record = {
 - **Fuzzy Search**: O(n*m) where m is query length
 - **In-place Operations**: Minimal additional memory
 
-
-## Testing
-
-```bash
-# Run algorithm tests
-python -m pytest app/algorithms/test.py -v
-
-
 ## Dependencies
 
 ### Required

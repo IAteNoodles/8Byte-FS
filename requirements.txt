@@ -32,8 +32,6 @@ altair==5.2.0
 # HTTP Requests
 requests==2.31.0
 
-# Database
-sqlite3  # Built-in with Python
 
 # Utilities
 python-dateutil==2.8.2

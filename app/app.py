@@ -17,7 +17,9 @@ from database.database import get_all_receipts, save_receipt
 from models.receipt import ReceiptData
 from services.parsers import parse_and_extract_data
 from services.currency_converter import convert_to_base_currency
-from flask_cors import CORS
+
+from flask_cors import CORS 
+# DO NOT USE THIS IN PROD (Hopefully) ~ IAteNoodles
 
 app = Flask(__name__)
 
@@ -286,6 +288,8 @@ def get_category_summary():
 
 
 
+#Security Hazard (Prolly)
+#DO NOT USE IN PROD(UNLESS...)
 CORS(app)
 
 if __name__ == '__main__':

@@ -19,9 +19,6 @@ except ImportError:
         AI_PARSER_AVAILABLE = False
         print("AI parser not available. Using standard OCR only.")
 
-# Image preprocessing removed as requested
-PREPROCESSING_AVAILABLE = False
-
 #----------------------VENDORS-----------------------
 
 KNOWN_VENDORS = {

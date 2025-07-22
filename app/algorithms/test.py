@@ -3,9 +3,9 @@ from datetime import date
 
 # TODO: Make sure to import your actual functions from their file.
 # Assuming your functions are in a file named 'algorithms.py'
-from search import search_by_keywords_concise
-from sort import sort_records
-from aggregation import calculate_total_spend, get_top_vendors
+from .search import search_by_keywords_concise
+from .sort import sort_records
+from .aggregation import calculate_total_spend, get_top_vendors
 
 class TestCoreAlgorithms(unittest.TestCase):
 
