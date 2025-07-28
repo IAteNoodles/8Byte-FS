@@ -11,7 +11,7 @@ import io
 import fitz  # PyMuPDF for PDF handling
 
 # --- Configuration ---
-BACKEND_URL = "http://127.0.0.1:5000"
+BACKEND_URL = "https://eightbyte-fs.onrender.com/"
 CURRENCY_SYMBOLS = {'INR': '₹', 'USD': '$', 'EUR': '€', 'GBP': '£'}
 
 # --- Page Setup ---
