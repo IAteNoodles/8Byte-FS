@@ -1,10 +1,10 @@
 # Core Web Framework
-flask==3.0.0
-flask-cors==4.0.0
+#flask==3.0.0
+#flask-cors==4.0.0
 
 # Data Processing & Analysis
-pandas==2.1.4
-numpy==1.24.3
+#pandas==2.1.4
+#numpy==1.24.3
 
 #Only for AI_Parser
 # Machine Learning & AI
@@ -13,25 +13,77 @@ numpy==1.24.3
 #qwen-vl-utils==0.0.3
 
 # Computer Vision & OCR
-opencv-python==4.8.1.78
-Pillow==10.1.0
-pytesseract==0.3.10
-PyMuPDF==1.23.14
+#opencv-python==4.8.1.78
+#Pillow==10.1.0
+#pytesseract==0.3.10
+#PyMuPDF==1.23.14
 
 # Text Processing & Fuzzy Matching
-thefuzz==0.20.0
-python-Levenshtein==0.23.0
+#thefuzz==0.20.0
+#python-Levenshtein==0.23.0
 
 # Data Validation & Models
-pydantic==2.5.2
+#pydantic==2.5.2
 
 # Web UI
-streamlit==1.29.0
-altair==5.2.0
+#streamlit==1.29.0
+#altair==5.2.0
 
 # HTTP Requests
-requests==2.31.0
+#requests==2.31.0
 
+
+# Core Web Framework
+flask
+flask-cors
+
+# Data Processing & Analysis
+pandas
+numpy
+
+# Only for AI_Parser
+# Machine Learning & AI
+# torch
+# transformers
+# qwen-vl-utils
+
+# Computer Vision & OCR
+opencv-python
+Pillow
+pytesseract
+PyMuPDF
+
+# Text Processing & Fuzzy Matching
+thefuzz
+python-Levenshtein
+
+# Data Validation & Models
+pydantic
+
+# Web UI
+streamlit
+altair
+
+# HTTP Requests
+requests
+
+# Utilities
+python-dateutil
+pytz
+
+# Development & Testing
+# pytest
+# unittest2
+
+# Optional: For enhanced OCR capabilities
+# easyocr  # Uncomment if using EasyOCR
+# paddlepaddle  # Uncomment if using PaddleOCR
+# paddleocr  # Uncomment if using PaddleOCR
+
+# System dependencies (install via system package manager):
+# - tesseract-ocr
+# - tesseract-ocr-eng
+# - poppler-utils (for PDF processing)
 
 # Utilities
 python-dateutil==2.8.2
