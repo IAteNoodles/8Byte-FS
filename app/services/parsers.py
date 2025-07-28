@@ -894,7 +894,7 @@ def parse_and_extract_data(file_bytes: bytes, file_extension: str, use_ai: bool 
             raw_text = _extract_text_with_ocr(file_bytes, file_extension)"""
 
         # Disabling AI
-    
+    try:
         print("Using Standard OCR (AI parser disabled)...")
         raw_text = _extract_text_with_ocr(file_bytes, file_extension)
         # Print raw text for debugging
