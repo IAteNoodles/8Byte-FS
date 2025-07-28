@@ -810,8 +810,10 @@ def parse_and_extract_data(file_bytes: bytes, file_extension: str, use_ai: bool 
     Main function to orchestrate OCR and parsing with enhanced logic.
     """
     raw_text = ""
+
+    # Disabling AI
     
-    try:
+    """try:
         if use_ai and AI_PARSER_AVAILABLE:
             print("Using AI-Enhanced OCR...")
             
@@ -889,8 +891,12 @@ def parse_and_extract_data(file_bytes: bytes, file_extension: str, use_ai: bool 
                 
         else:
             print("Using Standard OCR...")
-            raw_text = _extract_text_with_ocr(file_bytes, file_extension)
+            raw_text = _extract_text_with_ocr(file_bytes, file_extension)"""
 
+        # Disabling AI
+    
+        print("Using Standard OCR (AI parser disabled)...")
+        raw_text = _extract_text_with_ocr(file_bytes, file_extension)
         # Print raw text for debugging
         print("=" * 50)
         print("RAW TEXT EXTRACTED FROM OCR:")
